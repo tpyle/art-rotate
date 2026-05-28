@@ -46,7 +46,7 @@ func TestBuildCreateRequest_MirrorsTokenInfo(t *testing.T) {
 		Scope:       "applied-permissions/groups:readers",
 		Audience:    "*@*",
 		Refreshable: true,
-		Expiry:      now.Add(2 * time.Hour).Unix() * 1000,
+		Expiry:      now.Add(2*time.Hour).Unix() * 1000,
 		Description: "ci runner",
 		ProjectKey:  "myproj",
 	}
@@ -154,11 +154,11 @@ func TestRotate_CreateFlow(t *testing.T) {
 
 func TestIsIdentityToken(t *testing.T) {
 	cases := map[string]bool{
-		"applied-permissions/user":                          true,
+		"applied-permissions/user":                           true,
 		"applied-permissions/user applied-permissions/admin": true,
-		"applied-permissions/admin":                         false,
-		"applied-permissions/groups:readers":                false,
-		"":                                                  false,
+		"applied-permissions/admin":                          false,
+		"applied-permissions/groups:readers":                 false,
+		"":                                                   false,
 	}
 	for scope, want := range cases {
 		got := IsIdentityToken(&artifactory.TokenInfo{Scope: scope})

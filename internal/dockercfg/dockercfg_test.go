@@ -66,11 +66,11 @@ func TestParseAndEncode_RoundTrip(t *testing.T) {
 
 func TestNormalizeHost(t *testing.T) {
 	cases := map[string]string{
-		"docker.example.com":          "docker.example.com",
-		"https://docker.example.com":  "docker.example.com",
-		"https://docker.example.com/": "docker.example.com",
+		"docker.example.com":             "docker.example.com",
+		"https://docker.example.com":     "docker.example.com",
+		"https://docker.example.com/":    "docker.example.com",
 		"https://docker.example.com/v2/": "docker.example.com",
-		"docker.example.com:443":      "docker.example.com:443",
+		"docker.example.com:443":         "docker.example.com:443",
 	}
 	for in, want := range cases {
 		if got := NormalizeHost(in); got != want {
