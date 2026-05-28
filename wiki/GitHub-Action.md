@@ -80,7 +80,7 @@ jobs:
         run: printf '%s' "$NEW_TOKEN" | gh secret set ARTIFACTORY_TOKEN
 ```
 
-Both full templates (with `workflow_dispatch`, scheduling, etc.) are in [examples/](https://github.com/tpyle/art-rotate/tree/main/examples).
+Both full templates (with `workflow_dispatch`, scheduling, etc.) are in [examples/](https://github.com/tpyle/art-rotate/tree/trunk/examples).
 
 ## Security notes
 

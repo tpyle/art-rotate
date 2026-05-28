@@ -37,7 +37,7 @@ The ServiceAccount needs at minimum:
   verbs: ["get", "list", "update"]
 ```
 
-Full deployment manifest (ServiceAccount + ClusterRole + ClusterRoleBinding + CronJob): [examples/cronjob.yaml](https://github.com/tpyle/art-rotate/blob/main/examples/cronjob.yaml).
+Full deployment manifest (ServiceAccount + ClusterRole + ClusterRoleBinding + CronJob): [examples/cronjob.yaml](https://github.com/tpyle/art-rotate/blob/trunk/examples/cronjob.yaml).
 
 ## Flags
 
@@ -58,7 +58,7 @@ Full deployment manifest (ServiceAccount + ClusterRole + ClusterRoleBinding + Cr
 
 ## Example CronJob
 
-Minimal weekly rotation across two namespaces, only touching tokens older than seven days. Pair this with the ServiceAccount + ClusterRole + ClusterRoleBinding in [examples/cronjob.yaml](https://github.com/tpyle/art-rotate/blob/main/examples/cronjob.yaml) for a complete deployment.
+Minimal weekly rotation across two namespaces, only touching tokens older than seven days. Pair this with the ServiceAccount + ClusterRole + ClusterRoleBinding in [examples/cronjob.yaml](https://github.com/tpyle/art-rotate/blob/trunk/examples/cronjob.yaml) for a complete deployment.
 
 ```yaml
 apiVersion: batch/v1

@@ -2,7 +2,7 @@
 
 These `.md` files are the source for the project's GitHub Wiki. The wiki itself lives in the separate `*.wiki.git` repo that GitHub provisions per repository.
 
-Publishing is automated by [`.github/workflows/wiki.yml`](../.github/workflows/wiki.yml): on every push to `trunk` (or `main`) that touches `wiki/**`, the workflow clones the wiki repo, copies every `wiki/*.md` file into it — **except this `README.md`** — commits, and pushes.
+Publishing is automated by [`.github/workflows/wiki.yml`](../.github/workflows/wiki.yml): on every push to `trunk` that touches `wiki/**`, the workflow clones the wiki repo, copies every `wiki/*.md` file into it — **except this `README.md`** — commits, and pushes.
 
 That means:
 
