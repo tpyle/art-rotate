@@ -1,10 +1,16 @@
-FROM golang:1.26 AS build
+# Build stage runs natively on the runner's arch (BUILDPLATFORM) and
+# cross-compiles to the target arch — much faster than running the Go
+# toolchain under QEMU.
+FROM --platform=$BUILDPLATFORM golang:1.26 AS build
+ARG TARGETOS
+ARG TARGETARCH
 WORKDIR /src
 COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
-ENV CGO_ENABLED=0 GOOS=linux
-RUN go build -trimpath -tags 'netgo,osusergo' -ldflags="-s -w" -buildvcs=false \
+ENV CGO_ENABLED=0
+RUN GOOS=$TARGETOS GOARCH=$TARGETARCH \
+    go build -trimpath -tags 'netgo,osusergo' -ldflags="-s -w" -buildvcs=false \
         -o /out/art-k8s-rotate ./cmd/art-k8s-rotate
 
 FROM scratch
