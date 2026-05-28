@@ -1,0 +1,44 @@
+# Example: drop this file into .github/workflows/ in any repo that wants to
+# rotate an Artifactory token on a schedule. It is intentionally NOT installed
+# under .github/ in this repo — this repo holds the action's source, not a
+# live rotation workflow.
+#
+# Set up two secrets first:
+#   ARTIFACTORY_TOKEN — the Artifactory token to rotate. The action reads its
+#                       current value from this secret via the workflow's
+#                       secrets context and writes the new value back to the
+#                       same secret on success. You name it once via
+#                       'secret-name'; no need to also pass secrets.X.
+#   ROTATE_GH_TOKEN   — a PAT or GitHub App installation token with
+#                       Actions secrets:write on the target scope. The default
+#                       GITHUB_TOKEN does NOT have that permission and cannot
+#                       be granted it via the permissions: block.
+name: Rotate Artifactory token
+
+on:
+  schedule:
+    # Every Monday at 04:00 UTC.
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      revoke-old:
+        description: 'Revoke the old token after rotation'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  rotate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rotate Artifactory token
+        # Replace OWNER/REPO@REF with the published location of this action,
+        # e.g. yourorg/art-rotate/actions/rotate-artifactory-token@v1
+        uses: OWNER/REPO/actions/rotate-artifactory-token@REF
+        with:
+          artifactory-url: https://acme.jfrog.io
+          secret-name: ARTIFACTORY_TOKEN
+          github-token: ${{ secrets.ROTATE_GH_TOKEN }}
+          revoke-old: ${{ inputs.revoke-old || 'false' }}

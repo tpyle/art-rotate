@@ -1,0 +1,89 @@
+# Example deployment for art-k8s-rotate.
+#
+# Scans the listed namespaces every day at 02:15 UTC for Secrets of type
+# kubernetes.io/dockerconfigjson labeled art-rotate=true, locates the
+# Artifactory instance behind each registry host, and rotates the token in
+# place.
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: art-rotate
+  namespace: art-rotate
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: art-rotate
+rules:
+  - apiGroups: [""]
+    resources: ["secrets"]
+    verbs: ["get", "list", "update"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: art-rotate
+subjects:
+  - kind: ServiceAccount
+    name: art-rotate
+    namespace: art-rotate
+roleRef:
+  kind: ClusterRole
+  name: art-rotate
+  apiGroup: rbac.authorization.k8s.io
+---
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: art-rotate
+  namespace: art-rotate
+spec:
+  schedule: "15 2 * * *"
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          serviceAccountName: art-rotate
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: art-k8s-rotate
+              image: ghcr.io/your-org/art-rotate:latest
+              imagePullPolicy: IfNotPresent
+              args:
+                - --namespaces=team-a,team-b
+                - --label-selector=art-rotate=true
+                - --min-age=168h        # only rotate tokens older than a week
+                - --max-domain-strips=3
+                - --log-level=info
+                # Uncomment to also revoke the old token on success:
+                # - --revoke-old
+              resources:
+                requests:
+                  cpu: 50m
+                  memory: 64Mi
+                limits:
+                  cpu: 500m
+                  memory: 256Mi
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                # Optional fallback bearer when individual secret tokens
+                # cannot create new tokens for themselves.
+                - name: ARTIFACTORY_ADMIN_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: art-rotate-admin
+                      key: token
+                      optional: true

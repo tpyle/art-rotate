@@ -1,0 +1,59 @@
+# Example: rotate an Artifactory token using a GitHub App installation token
+# (instead of a long-lived PAT).
+#
+# A GitHub App is the safer way to grant the rotate action secrets:write:
+# the token minted at runtime is short-lived (~1h), scoped to whichever
+# repos the App is installed on, and does not ride on any individual user's
+# account.
+#
+# Setup:
+#   1. Create a GitHub App (Settings → Developer settings → GitHub Apps → New).
+#      Repository permissions → Secrets: Read and write.
+#   2. Generate a private key for the App; download the .pem file.
+#   3. Install the App on the repo(s) it should manage.
+#   4. Store these as secrets in the repo running this workflow:
+#        ROTATE_APP_ID          — the App's numeric ID (or client ID)
+#        ROTATE_APP_PRIVATE_KEY — the full contents of the downloaded .pem
+#   5. Make sure ARTIFACTORY_TOKEN already exists as a secret — the rotate
+#      action reads its current value, rotates it, and writes the new value
+#      back to the same secret.
+name: Rotate Artifactory token (GitHub App)
+
+on:
+  schedule:
+    - cron: '0 4 * * 1'
+  workflow_dispatch:
+    inputs:
+      revoke-old:
+        description: 'Revoke the old token after rotation'
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  rotate:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ secrets.ROTATE_APP_ID }}
+          private-key: ${{ secrets.ROTATE_APP_PRIVATE_KEY }}
+          # Restrict the minted token to this repo only. Omit both 'owner'
+          # and 'repositories' to get an org-wide installation token, or set
+          # 'repositories' to a newline-separated list for multiple repos.
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+
+      - name: Rotate Artifactory token
+        # Replace OWNER/REPO@REF with the published location of this action,
+        # e.g. yourorg/art-rotate/actions/rotate-artifactory-token@v1
+        uses: OWNER/REPO/actions/rotate-artifactory-token@REF
+        with:
+          artifactory-url: https://acme.jfrog.io
+          secret-name: ARTIFACTORY_TOKEN
+          github-token: ${{ steps.app-token.outputs.token }}
+          revoke-old: ${{ inputs.revoke-old || 'false' }}
