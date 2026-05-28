@@ -56,6 +56,78 @@ Full deployment manifest (ServiceAccount + ClusterRole + ClusterRoleBinding + Cr
 | `--log-level` | `debug`, `info`, `warn`, or `error`. |
 | `--probe-timeout` | HTTP timeout per Artifactory ping (default `10s`). |
 
+## Example CronJob
+
+Minimal weekly rotation across two namespaces, only touching tokens older than seven days. Pair this with the ServiceAccount + ClusterRole + ClusterRoleBinding in [examples/cronjob.yaml](https://github.com/tpyle/art-rotate/blob/main/examples/cronjob.yaml) for a complete deployment.
+
+```yaml
+apiVersion: batch/v1
+kind: CronJob
+metadata:
+  name: art-rotate
+  namespace: art-rotate
+spec:
+  schedule: "15 2 * * *"      # daily at 02:15 UTC
+  concurrencyPolicy: Forbid
+  successfulJobsHistoryLimit: 3
+  failedJobsHistoryLimit: 3
+  jobTemplate:
+    spec:
+      backoffLimit: 0
+      template:
+        spec:
+          serviceAccountName: art-rotate
+          restartPolicy: Never
+          securityContext:
+            runAsNonRoot: true
+            seccompProfile:
+              type: RuntimeDefault
+          containers:
+            - name: art-k8s-rotate
+              image: ghcr.io/tpyle/art-k8s-rotate:v0.3.1
+              args:
+                - --namespaces=team-a,team-b
+                - --label-selector=art-rotate=true
+                - --min-age=168h
+              resources:
+                requests: { cpu: 50m,  memory: 64Mi }
+                limits:   { cpu: 500m, memory: 256Mi }
+              securityContext:
+                allowPrivilegeEscalation: false
+                readOnlyRootFilesystem: true
+                capabilities:
+                  drop: ["ALL"]
+              env:
+                # Fallback bearer when individual secret tokens cannot
+                # create new tokens for themselves. Optional.
+                - name: ARTIFACTORY_ADMIN_TOKEN
+                  valueFrom:
+                    secretKeyRef:
+                      name: art-rotate-admin
+                      key: token
+                      optional: true
+```
+
+Apply with:
+
+```bash
+kubectl create namespace art-rotate
+kubectl apply -f examples/cronjob.yaml
+```
+
+Mark which Secrets are eligible by labelling them (the example uses `art-rotate=true`):
+
+```bash
+kubectl -n team-a label secret jfrog-pull art-rotate=true
+```
+
+Trigger a one-shot run for testing without waiting for the schedule:
+
+```bash
+kubectl create job --from=cronjob/art-rotate art-rotate-now -n art-rotate
+kubectl logs -f -n art-rotate job/art-rotate-now
+```
+
 ## Discovery example
 
 Given a Secret like:
