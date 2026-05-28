@@ -1,21 +1,17 @@
-# Example: rotate an Artifactory token on a schedule, using a PAT for the
-# GitHub-side secrets:write permission.
+# Example: rotate an Artifactory token on a schedule, using a PAT to write
+# the new value back into a GitHub Actions secret.
 #
-# Drop this file into .github/workflows/ in any repo that needs scheduled
-# rotation. It is intentionally NOT installed under .github/ in this repo —
-# this repo holds the reusable workflow's source, not a live rotation.
+# Drop this into .github/workflows/ in the consuming repo. The action only
+# rotates Artifactory-side; everything around it (where the old token comes
+# from, where the new one goes) is the workflow's job. That makes the auth
+# story for the GitHub side a normal `gh secret set` call with whatever
+# token you have available.
 #
-# Set up two secrets in the calling repo first:
-#   ARTIFACTORY_TOKEN — the Artifactory token to rotate. The reusable
-#                       workflow reads its current value via the inherited
-#                       secrets context and writes the new value back to
-#                       the same secret on success. You name it once via
-#                       'secret-name'; no second secrets.X reference is
-#                       needed.
-#   ROTATE_GH_TOKEN   — a PAT with Actions secrets:write on the target
-#                       scope. The default GITHUB_TOKEN does NOT have that
-#                       permission and cannot be granted it via the
-#                       permissions: block.
+# Secrets the consuming repo needs:
+#   ARTIFACTORY_TOKEN — the token to rotate. The new value is written back
+#                       to the same secret.
+#   ROTATE_GH_TOKEN   — PAT with Actions secrets:write on this repo. The
+#                       default GITHUB_TOKEN does NOT have that permission.
 name: Rotate Artifactory token
 
 on:
@@ -33,11 +29,24 @@ permissions:
 
 jobs:
   rotate:
-    # Replace @REF with a published tag/sha, e.g. @v0.1.0
-    uses: tpyle/art-rotate/.github/workflows/rotate.yml@REF
-    with:
-      artifactory-url: https://acme.jfrog.io
-      secret-name: ARTIFACTORY_TOKEN
-      github-pat-secret-name: ROTATE_GH_TOKEN
-      revoke-old: ${{ inputs.revoke-old || false }}
-    secrets: inherit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rotate Artifactory token
+        id: rotate
+        uses: tpyle/art-rotate/actions/rotate@v0.2.0
+        with:
+          artifactory-url: https://acme.jfrog.io
+          artifactory-token: ${{ secrets.ARTIFACTORY_TOKEN }}
+          revoke-old: ${{ inputs.revoke-old || 'false' }}
+
+      - name: Write new token back to GitHub secret
+        env:
+          GH_TOKEN: ${{ secrets.ROTATE_GH_TOKEN }}
+          NEW_TOKEN: ${{ steps.rotate.outputs.new-token }}
+        run: |
+          # Pipe through a file so the value never appears on a command line.
+          umask 077
+          printf '%s' "$NEW_TOKEN" > "$RUNNER_TEMP/new_token"
+          trap 'rm -f "$RUNNER_TEMP/new_token"' EXIT
+          gh secret set ARTIFACTORY_TOKEN --repo "$GITHUB_REPOSITORY" \
+            --body-file "$RUNNER_TEMP/new_token"

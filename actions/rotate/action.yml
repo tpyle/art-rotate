@@ -1,0 +1,123 @@
+name: Rotate Artifactory token
+description: >
+  Rotate a JFrog Artifactory access or identity token. Takes the existing
+  token as input and emits the new token as an output. Storing the new value
+  back into any secret store (GitHub Actions, Vault, etc.) is the caller's
+  responsibility — this action does only the Artifactory-side rotation.
+branding:
+  icon: refresh-cw
+  color: blue
+
+inputs:
+  artifactory-url:
+    description: 'Artifactory base URL, e.g. https://acme.jfrog.io'
+    required: true
+  artifactory-token:
+    description: 'Existing access or identity token to rotate.'
+    required: true
+  refresh-token:
+    description: 'Optional refresh token paired with artifactory-token; enables the refresh flow in auto mode.'
+    required: false
+    default: ''
+  admin-token:
+    description: 'Optional bearer used for create/revoke when the rotated token lacks permission.'
+    required: false
+    default: ''
+  method:
+    description: 'Rotation method: auto | refresh | create'
+    required: false
+    default: 'auto'
+  revoke-old:
+    description: 'Revoke the old token after the new one is issued (true/false).'
+    required: false
+    default: 'false'
+  include-reference-token:
+    description: 'Include reference (identity) token in response: auto | yes | no'
+    required: false
+    default: 'auto'
+
+outputs:
+  new-token:
+    description: >
+      The new token. Prefers the reference (opaque) form when the source was
+      an identity token; otherwise the JWT access token. Always masked.
+    value: ${{ steps.rotate.outputs.new-token }}
+  new-token-id:
+    description: 'token_id of the newly issued Artifactory token.'
+    value: ${{ steps.rotate.outputs.new-token-id }}
+  expires-in:
+    description: 'Lifetime of the new token in seconds (0 = non-expiring).'
+    value: ${{ steps.rotate.outputs.expires-in }}
+  is-identity-token:
+    description: 'true when the new token is an identity (reference) token.'
+    value: ${{ steps.rotate.outputs.is-identity-token }}
+
+runs:
+  using: composite
+  steps:
+    - name: Set up Go
+      uses: actions/setup-go@v5
+      with:
+        go-version-file: ${{ github.action_path }}/../../go.mod
+        cache: false
+
+    - name: Build art-rotate
+      shell: bash
+      env:
+        ACTION_PATH: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        cd "$ACTION_PATH/../.."
+        CGO_ENABLED=0 go build -trimpath -tags 'netgo,osusergo' \
+          -ldflags='-s -w' -buildvcs=false \
+          -o "$RUNNER_TEMP/art-rotate" ./cmd/art-rotate
+
+    - name: Rotate token
+      id: rotate
+      shell: bash
+      env:
+        ARTIFACTORY_URL: ${{ inputs.artifactory-url }}
+        ARTIFACTORY_TOKEN: ${{ inputs.artifactory-token }}
+        ARTIFACTORY_REFRESH_TOKEN: ${{ inputs.refresh-token }}
+        ARTIFACTORY_ADMIN_TOKEN: ${{ inputs.admin-token }}
+        METHOD: ${{ inputs.method }}
+        REVOKE_OLD: ${{ inputs.revoke-old }}
+        INCLUDE_REF: ${{ inputs.include-reference-token }}
+      run: |
+        set -euo pipefail
+        if [[ -z "${ARTIFACTORY_TOKEN:-}" ]]; then
+          echo "ERROR: artifactory-token input is empty" >&2
+          exit 1
+        fi
+        args=(--method "$METHOD" --include-reference-token "$INCLUDE_REF")
+        if [[ "$REVOKE_OLD" == "true" ]]; then
+          args+=(--revoke-old)
+        fi
+        json_out="$RUNNER_TEMP/art-rotate.out.json"
+        "$RUNNER_TEMP/art-rotate" "${args[@]}" > "$json_out"
+
+        new_access=$(jq -r '.access_token' "$json_out")
+        new_ref=$(jq -r '.reference_token // empty' "$json_out")
+        token_id=$(jq -r '.token_id' "$json_out")
+        expires_in=$(jq -r '.expires_in // 0' "$json_out")
+        is_identity=$(jq -r '.is_identity_token // false' "$json_out")
+
+        new_value="$new_access"
+        if [[ -n "$new_ref" ]]; then new_value="$new_ref"; fi
+
+        # Mask every form of the new token before emitting outputs.
+        echo "::add-mask::$new_value"
+        echo "::add-mask::$new_access"
+        if [[ -n "$new_ref" ]]; then echo "::add-mask::$new_ref"; fi
+
+        # Use heredoc for new-token so any unexpected characters round-trip
+        # cleanly through the GITHUB_OUTPUT file.
+        {
+          echo "new-token<<__ART_ROTATE_EOF__"
+          printf '%s\n' "$new_value"
+          echo "__ART_ROTATE_EOF__"
+          echo "new-token-id=$token_id"
+          echo "expires-in=$expires_in"
+          echo "is-identity-token=$is_identity"
+        } >> "$GITHUB_OUTPUT"
+        rm -f "$json_out"

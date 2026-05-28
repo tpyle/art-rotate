@@ -1,20 +1,16 @@
 # Example: rotate an Artifactory token using a GitHub App for the
-# GitHub-side secrets:write permission.
-#
-# A GitHub App is the safer alternative to a PAT: the installation token is
-# minted at runtime inside the reusable workflow (short-lived, ~1h), scoped
-# to whichever repos the App is installed on, and does not depend on any
-# user account.
+# GitHub-side secrets:write permission. The App token is minted inline in
+# the same job and used by the final `gh secret set` step.
 #
 # Setup:
 #   1. Create a GitHub App (Settings → Developer settings → GitHub Apps).
 #      Repository permissions → Secrets: Read and write.
 #   2. Generate and download a .pem private key.
 #   3. Install the App on the repo(s) it should manage.
-#   4. Add these secrets in the calling repo:
+#   4. Add these secrets to the consuming repo:
 #        ARTIFACTORY_TOKEN      — the Artifactory token to rotate
-#        ROTATE_APP_PRIVATE_KEY — the contents of the downloaded .pem file
-#   5. Note the App ID (numeric or client ID) — passed as a literal input,
+#        ROTATE_APP_PRIVATE_KEY — contents of the downloaded .pem file
+#   5. Note the App ID (numeric or client ID); it's passed as a literal,
 #      not a secret.
 name: Rotate Artifactory token (GitHub App)
 
@@ -33,12 +29,30 @@ permissions:
 
 jobs:
   rotate:
-    # Replace @REF with a published tag/sha, e.g. @v0.1.0
-    uses: tpyle/art-rotate/.github/workflows/rotate.yml@REF
-    with:
-      artifactory-url: https://acme.jfrog.io
-      secret-name: ARTIFACTORY_TOKEN
-      app-id: '123456'   # your GitHub App's numeric or client ID
-      app-private-key-secret-name: ROTATE_APP_PRIVATE_KEY
-      revoke-old: ${{ inputs.revoke-old || false }}
-    secrets: inherit
+    runs-on: ubuntu-latest
+    steps:
+      - name: Mint GitHub App installation token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: '123456'   # your App's numeric or client ID
+          private-key: ${{ secrets.ROTATE_APP_PRIVATE_KEY }}
+
+      - name: Rotate Artifactory token
+        id: rotate
+        uses: tpyle/art-rotate/actions/rotate@v0.2.0
+        with:
+          artifactory-url: https://acme.jfrog.io
+          artifactory-token: ${{ secrets.ARTIFACTORY_TOKEN }}
+          revoke-old: ${{ inputs.revoke-old || 'false' }}
+
+      - name: Write new token back to GitHub secret
+        env:
+          GH_TOKEN: ${{ steps.app-token.outputs.token }}
+          NEW_TOKEN: ${{ steps.rotate.outputs.new-token }}
+        run: |
+          umask 077
+          printf '%s' "$NEW_TOKEN" > "$RUNNER_TEMP/new_token"
+          trap 'rm -f "$RUNNER_TEMP/new_token"' EXIT
+          gh secret set ARTIFACTORY_TOKEN --repo "$GITHUB_REPOSITORY" \
+            --body-file "$RUNNER_TEMP/new_token"
