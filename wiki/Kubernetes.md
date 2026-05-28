@@ -18,8 +18,8 @@ When the source is an identity token, the opaque reference form of the new token
 Each release publishes a `FROM scratch` image to GHCR:
 
 ```
-ghcr.io/tpyle/art-k8s-rotate:v0.2.0
-ghcr.io/tpyle/art-k8s-rotate:0.2
+ghcr.io/tpyle/art-k8s-rotate:v0.3.0
+ghcr.io/tpyle/art-k8s-rotate:0.3
 ghcr.io/tpyle/art-k8s-rotate:latest
 ```
 

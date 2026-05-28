@@ -44,7 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - id: rotate
-        uses: tpyle/art-rotate/actions/rotate@v0.2.0
+        uses: tpyle/art-rotate/actions/rotate@v0.3.0
         with:
           artifactory-url: https://acme.jfrog.io
           artifactory-token: ${{ secrets.ARTIFACTORY_TOKEN }}
@@ -69,7 +69,7 @@ jobs:
           private-key: ${{ secrets.ROTATE_APP_PRIVATE_KEY }}
 
       - id: rotate
-        uses: tpyle/art-rotate/actions/rotate@v0.2.0
+        uses: tpyle/art-rotate/actions/rotate@v0.3.0
         with:
           artifactory-url: https://acme.jfrog.io
           artifactory-token: ${{ secrets.ARTIFACTORY_TOKEN }}

@@ -35,6 +35,13 @@ inputs:
     description: 'Include reference (identity) token in response: auto | yes | no'
     required: false
     default: 'auto'
+  version:
+    description: >
+      art-rotate release tag to download (e.g. v0.3.0). Defaults to the ref
+      this action is invoked at, so `@v0.3.0` pulls the v0.3.0 binary. Set
+      explicitly when invoking the action via a SHA or branch ref.
+    required: false
+    default: ''
 
 outputs:
   new-token:
@@ -55,22 +62,44 @@ outputs:
 runs:
   using: composite
   steps:
-    - name: Set up Go
-      uses: actions/setup-go@v5
-      with:
-        go-version-file: ${{ github.action_path }}/../../go.mod
-        cache: false
-
-    - name: Build art-rotate
+    - name: Download art-rotate binary
       shell: bash
       env:
-        ACTION_PATH: ${{ github.action_path }}
+        REQUESTED_VERSION: ${{ inputs.version }}
+        ACTION_REF: ${{ github.action_ref }}
       run: |
         set -euo pipefail
-        cd "$ACTION_PATH/../.."
-        CGO_ENABLED=0 go build -trimpath -tags 'netgo,osusergo' \
-          -ldflags='-s -w' -buildvcs=false \
-          -o "$RUNNER_TEMP/art-rotate" ./cmd/art-rotate
+        version="${REQUESTED_VERSION:-$ACTION_REF}"
+        if [[ -z "$version" ]]; then
+          echo "ERROR: cannot determine art-rotate release to download." >&2
+          echo "       Pin the action to a release tag (e.g. @v0.3.0) or set" >&2
+          echo "       the 'version' input." >&2
+          exit 1
+        fi
+
+        case "$(uname -s)" in
+          Linux*)  goos=linux  ;;
+          Darwin*) goos=darwin ;;
+          *) echo "ERROR: unsupported OS $(uname -s)" >&2; exit 1 ;;
+        esac
+        case "$(uname -m)" in
+          x86_64|amd64)   goarch=amd64 ;;
+          arm64|aarch64)  goarch=arm64 ;;
+          *) echo "ERROR: unsupported arch $(uname -m)" >&2; exit 1 ;;
+        esac
+
+        archive="art-rotate_${version}_${goos}_${goarch}.tar.gz"
+        base="https://github.com/tpyle/art-rotate/releases/download/${version}"
+
+        echo "INFO: downloading ${base}/${archive}"
+        curl -fsSL -o "$RUNNER_TEMP/${archive}"  "${base}/${archive}"
+        curl -fsSL -o "$RUNNER_TEMP/SHA256SUMS"  "${base}/SHA256SUMS"
+
+        (cd "$RUNNER_TEMP" && sha256sum --ignore-missing -c SHA256SUMS)
+
+        tar -xzf "$RUNNER_TEMP/${archive}" -C "$RUNNER_TEMP" art-rotate
+        chmod +x "$RUNNER_TEMP/art-rotate"
+        rm -f "$RUNNER_TEMP/${archive}" "$RUNNER_TEMP/SHA256SUMS"
 
     - name: Rotate token
       id: rotate
@@ -110,8 +139,6 @@ runs:
         echo "::add-mask::$new_access"
         if [[ -n "$new_ref" ]]; then echo "::add-mask::$new_ref"; fi
 
-        # Use heredoc for new-token so any unexpected characters round-trip
-        # cleanly through the GITHUB_OUTPUT file.
         {
           echo "new-token<<__ART_ROTATE_EOF__"
           printf '%s\n' "$new_value"

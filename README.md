@@ -43,7 +43,7 @@ The controller probes each registry hostname's parent domains to find the Artifa
 
 ```yaml
 - id: rotate
-  uses: tpyle/art-rotate/actions/rotate@v0.2.0
+  uses: tpyle/art-rotate/actions/rotate@v0.3.0
   with:
     artifactory-url: https://acme.jfrog.io
     artifactory-token: ${{ secrets.ARTIFACTORY_TOKEN }}

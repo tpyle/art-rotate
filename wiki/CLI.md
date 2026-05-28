@@ -7,7 +7,7 @@ A one-shot tool that introspects an existing Artifactory token, issues a new one
 Download a release tarball:
 
 ```bash
-VERSION=v0.2.0
+VERSION=v0.3.0
 curl -sSL "https://github.com/tpyle/art-rotate/releases/download/${VERSION}/art-rotate_${VERSION}_linux_amd64.tar.gz" \
   | tar -xz
 ```
