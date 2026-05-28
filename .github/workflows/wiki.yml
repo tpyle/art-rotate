@@ -1,0 +1,60 @@
+name: Publish Wiki
+
+on:
+  push:
+    branches: [main, trunk]
+    paths:
+      - "wiki/**"
+  workflow_dispatch:    # Allow manual trigger from the Actions tab
+
+permissions:
+  contents: write       # Required to push to the wiki repo
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v6
+
+      - name: Clone or init wiki repo
+        env:
+          WIKI_URL: "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git"
+        run: |
+          if git clone "$WIKI_URL" wiki-repo 2>/dev/null; then
+            echo "Cloned existing wiki."
+          else
+            echo "Wiki repo does not exist yet — initialising empty repo."
+            mkdir wiki-repo
+            git -C wiki-repo init
+            git -C wiki-repo remote add origin "$WIKI_URL"
+          fi
+
+      - name: Sync wiki files
+        run: |
+          # Copy all .md files except README.md (which documents this workflow,
+          # not the wiki itself).
+          for f in wiki/*.md; do
+            [[ "$(basename "$f")" == "README.md" ]] && continue
+            cp "$f" wiki-repo/
+          done
+
+      - name: Commit and push
+        env:
+          WIKI_URL: "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.wiki.git"
+        run: |
+          cd wiki-repo
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add .
+          # Only commit when there are actual changes.
+          if git diff --staged --quiet; then
+            echo "No wiki changes to publish."
+          else
+            git commit -m "docs: update wiki
+
+          Source commit: ${{ github.sha }}
+          Triggered by: ${{ github.actor }}"
+            git push origin HEAD
+            echo "Wiki published successfully."
+          fi

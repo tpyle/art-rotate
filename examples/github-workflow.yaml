@@ -44,9 +44,7 @@ jobs:
           GH_TOKEN: ${{ secrets.ROTATE_GH_TOKEN }}
           NEW_TOKEN: ${{ steps.rotate.outputs.new-token }}
         run: |
-          # Pipe through a file so the value never appears on a command line.
-          umask 077
-          printf '%s' "$NEW_TOKEN" > "$RUNNER_TEMP/new_token"
-          trap 'rm -f "$RUNNER_TEMP/new_token"' EXIT
-          gh secret set ARTIFACTORY_TOKEN --repo "$GITHUB_REPOSITORY" \
-            --body-file "$RUNNER_TEMP/new_token"
+          # gh secret set reads from stdin when --body is omitted, which
+          # keeps the value off the command line.
+          printf '%s' "$NEW_TOKEN" \
+            | gh secret set ARTIFACTORY_TOKEN --repo "$GITHUB_REPOSITORY"
