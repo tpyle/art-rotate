@@ -139,6 +139,10 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+          # Exclude the *.dockerbuild build-record artifact that
+          # docker/build-push-action@v6 uploads automatically — it's
+          # debugging metadata, not something we want in the release.
+          pattern: art-rotate-*
 
       - name: Aggregate checksums
         run: |
