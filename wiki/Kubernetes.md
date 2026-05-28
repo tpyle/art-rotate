@@ -23,6 +23,8 @@ ghcr.io/tpyle/art-k8s-rotate:0.3
 ghcr.io/tpyle/art-k8s-rotate:latest
 ```
 
+Each tag is a multi-arch manifest covering `linux/amd64` and `linux/arm64`; the container runtime picks the right one automatically.
+
 Single binary (~26 MB), static (`netgo,osusergo`, `CGO_ENABLED=0`), runs as UID 65532. No shell — for debugging, temporarily swap to `gcr.io/distroless/base-debian12:debug`.
 
 ## RBAC
