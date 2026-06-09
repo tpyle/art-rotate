@@ -43,6 +43,15 @@ type Options struct {
 	Description      string
 	IncludeReference IncludeReference
 
+	// Rotation gates (OR-combined). Zero values disable each gate.
+	//   MinAge        — rotate only when token age (now − issued_at) >= MinAge.
+	//   ExpiresWithin — rotate only when remaining lifetime (expiry − now) <= ExpiresWithin.
+	// If both are zero, rotation always proceeds. If both are non-zero,
+	// rotation proceeds when EITHER gate is satisfied. A non-expiring token
+	// (Expiry == 0) never satisfies ExpiresWithin.
+	MinAge        time.Duration
+	ExpiresWithin time.Duration
+
 	// Now lets tests inject a clock; defaults to time.Now.
 	Now func() time.Time
 }
@@ -55,6 +64,12 @@ type Result struct {
 	RevokeErr    error
 	Response     *artifactory.CreateResponse
 	OldTokenInfo *artifactory.TokenInfo
+
+	// Skipped is true when the rotation gates (MinAge / ExpiresWithin) were
+	// set and not satisfied; in that case no new token was issued. The other
+	// rotation fields (NewTokenID, Method, Response) are zero/nil.
+	Skipped    bool
+	SkipReason string
 }
 
 // Rotate runs the full introspect → (refresh|create) → optional revoke flow.
@@ -70,6 +85,15 @@ func Rotate(ctx context.Context, c *artifactory.Client, opts Options) (*Result, 
 	info, err := c.Introspect(ctx, opts.Token)
 	if err != nil {
 		return nil, fmt.Errorf("introspect: %w", err)
+	}
+
+	if skip, reason := evaluateGates(info, opts, now()); skip {
+		return &Result{
+			OldTokenID:   info.TokenID,
+			OldTokenInfo: info,
+			Skipped:      true,
+			SkipReason:   reason,
+		}, nil
 	}
 
 	method := chooseMethod(opts.Method, info.Refreshable, opts.RefreshToken != "")
@@ -117,6 +141,52 @@ func Rotate(ctx context.Context, c *artifactory.Client, opts Options) (*Result, 
 		}
 	}
 	return res, nil
+}
+
+// evaluateGates checks the MinAge and ExpiresWithin gates against the
+// introspected token. It returns (true, reason) when at least one gate is
+// configured and none of the configured gates are satisfied — i.e. the token
+// is still healthy enough to keep. When no gates are set, it always returns
+// (false, "") so behavior is unchanged.
+//
+// Semantics:
+//   - MinAge satisfied        when (now - issued_at) >= MinAge.
+//   - ExpiresWithin satisfied when expiry > 0 AND (expiry - now) <= ExpiresWithin.
+//   - Gates combine with OR  — proceeding requires any configured gate to be satisfied.
+func evaluateGates(info *artifactory.TokenInfo, opts Options, now time.Time) (skip bool, reason string) {
+	if opts.MinAge == 0 && opts.ExpiresWithin == 0 {
+		return false, ""
+	}
+
+	var age, remaining time.Duration
+	if info.IssuedAt > 0 {
+		age = now.Sub(time.UnixMilli(info.IssuedAt))
+	}
+	if info.Expiry > 0 {
+		remaining = time.UnixMilli(info.Expiry).Sub(now)
+	}
+
+	if opts.MinAge > 0 && age >= opts.MinAge {
+		return false, ""
+	}
+	if opts.ExpiresWithin > 0 && info.Expiry > 0 && remaining <= opts.ExpiresWithin {
+		return false, ""
+	}
+
+	// Build a reason describing what failed. Only mention the gates that
+	// were actually set.
+	parts := make([]string, 0, 2)
+	if opts.MinAge > 0 {
+		parts = append(parts, fmt.Sprintf("age %s < min-age %s", age.Round(time.Second), opts.MinAge))
+	}
+	if opts.ExpiresWithin > 0 {
+		if info.Expiry == 0 {
+			parts = append(parts, "token is non-expiring (expires-within can never apply)")
+		} else {
+			parts = append(parts, fmt.Sprintf("remaining %s > expires-within %s", remaining.Round(time.Second), opts.ExpiresWithin))
+		}
+	}
+	return true, strings.Join(parts, "; ")
 }
 
 func chooseMethod(requested Method, refreshable, haveRefreshToken bool) Method {

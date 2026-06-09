@@ -65,7 +65,11 @@ spec:
               args:
                 - --namespaces=team-a,team-b
                 - --label-selector=art-rotate=true
-                - --min-age=168h        # only rotate tokens older than a week
+                # Rotate when the token is at least a week old OR has less
+                # than a day of lifetime remaining (OR semantics). Either
+                # flag alone works; both together is the idempotent default.
+                - --min-age=168h
+                - --expires-within=24h
                 - --log-level=info
                 # Uncomment to also revoke the old token on success:
                 # - --revoke-old

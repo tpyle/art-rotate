@@ -49,7 +49,8 @@ Full deployment manifest (ServiceAccount + ClusterRole + ClusterRoleBinding + Cr
 | `--names` | Comma-separated allow-list of Secret names. |
 | `--admin-token` | Optional fallback bearer for create/revoke. |
 | `--max-domain-strips` | How many subdomain labels to strip while probing (default `3`). |
-| `--min-age` | Skip Secrets whose token was issued less than this ago (e.g. `168h`). |
+| `--min-age` | Rotate only if the token was issued at least this long ago (e.g. `168h`). OR-combined with `--expires-within`. Zero disables. |
+| `--expires-within` | Rotate only if the token expires within this duration (e.g. `24h`). Non-expiring tokens never satisfy this gate. OR-combined with `--min-age`. Zero disables. |
 | `--revoke-old` | Delete the old token after a successful rotation. |
 | `--dry-run` | Log what would happen without mutating anything. |
 | `--kubeconfig` | Path to a kubeconfig (out-of-cluster). Empty = in-cluster. |
@@ -88,7 +89,8 @@ spec:
               args:
                 - --namespaces=team-a,team-b
                 - --label-selector=art-rotate=true
-                - --min-age=168h
+                - --min-age=168h          # rotate if older than a week ...
+                - --expires-within=24h    # ... OR within a day of expiry
               resources:
                 requests: { cpu: 50m,  memory: 64Mi }
                 limits:   { cpu: 500m, memory: 256Mi }

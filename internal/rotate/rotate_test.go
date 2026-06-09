@@ -6,12 +6,97 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"art-rotate/internal/artifactory"
 )
+
+func TestEvaluateGates(t *testing.T) {
+	now := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
+	issuedDaysAgo := func(days int) int64 {
+		return now.Add(-time.Duration(days) * 24 * time.Hour).UnixMilli()
+	}
+	expiresInDays := func(days int) int64 {
+		return now.Add(time.Duration(days) * 24 * time.Hour).UnixMilli()
+	}
+
+	cases := []struct {
+		name       string
+		issuedAt   int64
+		expiry     int64
+		minAge     time.Duration
+		expiresIn  time.Duration
+		wantSkip   bool
+	}{
+		{"no gates set always proceeds", issuedDaysAgo(1), expiresInDays(30), 0, 0, false},
+		{"min-age satisfied", issuedDaysAgo(10), 0, 7 * 24 * time.Hour, 0, false},
+		{"min-age not satisfied", issuedDaysAgo(2), 0, 7 * 24 * time.Hour, 0, true},
+		{"expires-within satisfied", 0, expiresInDays(2), 0, 7 * 24 * time.Hour, false},
+		{"expires-within not satisfied", 0, expiresInDays(30), 0, 7 * 24 * time.Hour, true},
+		{"non-expiring token + expires-within only → skip", 0, 0, 0, 7 * 24 * time.Hour, true},
+		{"OR — only expires-within satisfied", issuedDaysAgo(2), expiresInDays(2), 7 * 24 * time.Hour, 7 * 24 * time.Hour, false},
+		{"OR — only min-age satisfied", issuedDaysAgo(10), expiresInDays(30), 7 * 24 * time.Hour, 7 * 24 * time.Hour, false},
+		{"OR — neither satisfied → skip", issuedDaysAgo(2), expiresInDays(30), 7 * 24 * time.Hour, 7 * 24 * time.Hour, true},
+		{"OR — both satisfied", issuedDaysAgo(10), expiresInDays(2), 7 * 24 * time.Hour, 7 * 24 * time.Hour, false},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			info := &artifactory.TokenInfo{IssuedAt: tc.issuedAt, Expiry: tc.expiry}
+			opts := Options{MinAge: tc.minAge, ExpiresWithin: tc.expiresIn}
+			skip, reason := evaluateGates(info, opts, now)
+			if skip != tc.wantSkip {
+				t.Errorf("evaluateGates: skip=%v want=%v reason=%q", skip, tc.wantSkip, reason)
+			}
+			if skip && reason == "" {
+				t.Errorf("expected non-empty reason when skipping")
+			}
+		})
+	}
+}
+
+func TestRotate_SkipsWhenGateNotSatisfied(t *testing.T) {
+	now := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
+	issuedRecently := now.Add(-2 * time.Hour).UnixMilli()
+
+	createCalled := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case r.Method == http.MethodGet && r.URL.Path == "/access/api/v1/tokens/me":
+			body := `{"token_id":"old","subject":"jfac@x/users/svc","scope":"applied-permissions/admin","refreshable":false,"issued_at":` +
+				strconv.FormatInt(issuedRecently, 10) + `}`
+			_, _ = io.WriteString(w, body)
+		case r.Method == http.MethodPost && r.URL.Path == "/access/api/v1/tokens":
+			createCalled = true
+			_, _ = io.WriteString(w, `{"access_token":"NEW","token_id":"new"}`)
+		default:
+			t.Errorf("unexpected: %s %s", r.Method, r.URL.Path)
+		}
+	}))
+	defer srv.Close()
+
+	c, _ := artifactory.New(artifactory.Options{BaseURL: srv.URL, Timeout: 5 * time.Second})
+	res, err := Rotate(context.Background(), c, Options{
+		Token:  "input",
+		MinAge: 24 * time.Hour,
+		Now:    func() time.Time { return now },
+	})
+	if err != nil {
+		t.Fatalf("Rotate: %v", err)
+	}
+	if !res.Skipped {
+		t.Errorf("expected Skipped=true, got %+v", res)
+	}
+	if res.NewTokenID != "" || res.Response != nil {
+		t.Errorf("skipped result should not contain new-token fields: %+v", res)
+	}
+	if createCalled {
+		t.Errorf("create endpoint should not have been called when gate skips")
+	}
+}
 
 func TestChooseMethod(t *testing.T) {
 	cases := []struct {

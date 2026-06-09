@@ -15,15 +15,19 @@ This split keeps the action narrow: you handle the `gh secret set` step with wha
 | `method` | no | `auto` | One of `auto`, `refresh`, `create` |
 | `revoke-old` | no | `false` | Delete the old token after issuing the new one |
 | `include-reference-token` | no | `auto` | One of `auto`, `yes`, `no` |
+| `min-age` | no | | Rotate only if the existing token is at least this old (Go duration, e.g. `168h`). Empty disables. OR-combined with `expires-within`. |
+| `expires-within` | no | | Rotate only if the existing token expires within this duration (e.g. `24h`). Non-expiring tokens never satisfy this gate. Empty disables. OR-combined with `min-age`. |
 
 ## Outputs
 
 | Output | Description |
 |---|---|
-| `new-token` | The new token. Prefers the reference (opaque) form when the source was an identity token; otherwise the JWT access token. Always masked. |
-| `new-token-id` | `token_id` of the new token |
+| `new-token` | The new token. Prefers the reference (opaque) form when the source was an identity token; otherwise the JWT access token. Always masked. Empty when `skipped` is `true`. |
+| `new-token-id` | `token_id` of the new token. Empty when `skipped` is `true`. |
 | `expires-in` | Lifetime in seconds (0 = non-expiring) |
 | `is-identity-token` | `true` when the new token is an identity token |
+| `skipped` | `true` when a rotation gate (`min-age` / `expires-within`) was set but not satisfied, so no new token was issued. Guard downstream steps with `if: steps.rotate.outputs.skipped != 'true'`. |
+| `skip-reason` | Human-readable reason when `skipped` is `true`. |
 
 ## Storing the new value
 
@@ -48,8 +52,11 @@ jobs:
         with:
           artifactory-url: https://acme.jfrog.io
           artifactory-token: ${{ secrets.ARTIFACTORY_TOKEN }}
+          min-age: 168h          # rotate if token is older than a week ...
+          expires-within: 24h    # ... OR within a day of expiry
 
-      - env:
+      - if: steps.rotate.outputs.skipped != 'true'
+        env:
           GH_TOKEN: ${{ secrets.ROTATE_GH_TOKEN }}
           NEW_TOKEN: ${{ steps.rotate.outputs.new-token }}
         run: printf '%s' "$NEW_TOKEN" | gh secret set ARTIFACTORY_TOKEN

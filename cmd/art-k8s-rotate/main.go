@@ -58,7 +58,8 @@ Flags:
 		names           = fs.String("names", "", "Comma-separated list of secret names to allow; empty = no name filter")
 		adminToken      = fs.String("admin-token", os.Getenv("ARTIFACTORY_ADMIN_TOKEN"), "Bearer used for create/revoke if the secret's own token lacks permission")
 		maxDomainStrips = fs.Int("max-domain-strips", 3, "How many leading subdomain labels to strip when probing for Artifactory")
-		minAge          = fs.Duration("min-age", 0, "Skip rotating tokens younger than this (e.g. 24h)")
+		minAge          = fs.Duration("min-age", 0, "Rotate only if the token was issued at least this long ago (e.g. 168h). Zero disables. OR-combined with --expires-within.")
+		expiresWithin   = fs.Duration("expires-within", 0, "Rotate only if the token expires within this duration (e.g. 24h). Non-expiring tokens never satisfy this gate. Zero disables. OR-combined with --min-age.")
 		revokeOld       = fs.Bool("revoke-old", false, "Revoke the old token after the new one is written back")
 		dryRun          = fs.Bool("dry-run", false, "Report what would happen without modifying secrets or Artifactory")
 		kubeconfig      = fs.String("kubeconfig", os.Getenv("KUBECONFIG"), "Path to a kubeconfig (out-of-cluster); empty = in-cluster")
@@ -116,6 +117,7 @@ Flags:
 		AdminToken:      *adminToken,
 		MaxDomainStrips: *maxDomainStrips,
 		MinAge:          *minAge,
+		ExpiresWithin:   *expiresWithin,
 		RevokeOld:       *revokeOld,
 		DryRun:          *dryRun,
 		Logger:          logger,
