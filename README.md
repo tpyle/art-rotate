@@ -12,6 +12,8 @@ This repo ships three components, all backed by the same Go rotation core:
 
 Both JWT access tokens and reference-style identity tokens are supported. When the source token's scope is `applied-permissions/user`, the new token is requested with `include_reference_token=true` so the opaque (Docker-login-compatible) form is in the response.
 
+All three components share `--min-age` and `--expires-within` rotation gates (or `min-age` / `expires-within` inputs for the action). Rotation runs only when the existing token is older than `--min-age` **or** has less than `--expires-within` of life remaining — letting you make scheduled rotation idempotent.
+
 ## Quick start
 
 ### CLI

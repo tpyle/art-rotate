@@ -37,8 +37,13 @@ type Options struct {
 	AdminToken string
 	// MaxDomainStrips is the parent-domain probe depth.
 	MaxDomainStrips int
-	// MinAge: skip secrets whose token was issued less than this ago.
+	// MinAge: rotate only when (now - issued_at) >= MinAge. Zero disables.
+	// OR-combined with ExpiresWithin.
 	MinAge time.Duration
+	// ExpiresWithin: rotate only when (expiry - now) <= ExpiresWithin. Zero
+	// disables. Non-expiring tokens never satisfy this gate. OR-combined
+	// with MinAge.
+	ExpiresWithin time.Duration
 	// RevokeOld asks Artifactory to delete the old token after success.
 	RevokeOld bool
 	// DryRun logs what would happen without mutating cluster state or
@@ -155,32 +160,27 @@ func processSecret(ctx context.Context, opts Options, s *corev1.Secret, rep *Rep
 		if err != nil {
 			return fmt.Errorf("artifactory client for %s: %w", disc.BaseURL, err)
 		}
-		if opts.MinAge > 0 {
-			info, err := client.Introspect(ctx, entry.Password)
-			if err != nil {
-				log.Warn("introspect for min-age check failed", "err", err)
-				rep.Skipped++
-				continue
-			}
-			age := opts.Now().Sub(time.Unix(info.IssuedAt/1000, 0))
-			if age < opts.MinAge {
-				log.Info("skip: token younger than min-age", "age", age, "min_age", opts.MinAge)
-				rep.Skipped++
-				continue
-			}
-		}
 		if opts.DryRun {
 			log.Info("dry-run: would rotate", "artifactory", disc.BaseURL)
 			continue
 		}
 		res, err := rotate.Rotate(ctx, client, rotate.Options{
-			Token:      entry.Password,
-			AdminToken: opts.AdminToken,
-			Method:     rotate.MethodAuto,
-			RevokeOld:  opts.RevokeOld,
+			Token:         entry.Password,
+			AdminToken:    opts.AdminToken,
+			Method:        rotate.MethodAuto,
+			RevokeOld:     opts.RevokeOld,
+			MinAge:        opts.MinAge,
+			ExpiresWithin: opts.ExpiresWithin,
+			Now:           opts.Now,
 		})
 		if err != nil {
 			return fmt.Errorf("rotate via %s: %w", disc.BaseURL, err)
+		}
+		if res.Skipped {
+			log.Info("skip: rotation gate not satisfied",
+				"reason", res.SkipReason, "old_token_id", res.OldTokenID)
+			rep.Skipped++
+			continue
 		}
 		newPassword := res.Response.AccessToken
 		if res.Response.ReferenceToken != "" {

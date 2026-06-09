@@ -2,19 +2,28 @@ package sink
 
 import "context"
 
-// Payload is what every sink receives. AccessToken and TokenID are always
-// populated. ReferenceToken is set when the new token is an identity token
-// (or include_reference_token was forced on).
+// Payload is what every sink receives.
+//
+// On a successful rotation, AccessToken and TokenID are populated, plus the
+// other token metadata. On a skipped rotation (gates not satisfied), Skipped
+// is true and only OldTokenID and SkipReason are meaningful; all other fields
+// are zero. Consumers can branch on the top-level Skipped boolean.
 type Payload struct {
-	AccessToken    string `json:"access_token"`
+	AccessToken    string `json:"access_token,omitempty"`
 	ReferenceToken string `json:"reference_token,omitempty"`
-	TokenID        string `json:"token_id"`
+	TokenID        string `json:"token_id,omitempty"`
 	ExpiresIn      int64  `json:"expires_in,omitempty"`
 	Scope          string `json:"scope,omitempty"`
 	Audience       string `json:"audience,omitempty"`
-	Refreshable    bool   `json:"refreshable"`
+	Refreshable    bool   `json:"refreshable,omitempty"`
 	RefreshToken   string `json:"refresh_token,omitempty"`
 	IsIdentity     bool   `json:"is_identity_token,omitempty"`
+
+	// Skip marker — emitted in place of a new token when a rotation gate
+	// (--min-age / --expires-within) was set but not satisfied.
+	Skipped    bool   `json:"skipped,omitempty"`
+	SkipReason string `json:"skip_reason,omitempty"`
+	OldTokenID string `json:"old_token_id,omitempty"`
 }
 
 type Sink interface {

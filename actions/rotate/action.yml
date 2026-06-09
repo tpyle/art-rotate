@@ -35,6 +35,19 @@ inputs:
     description: 'Include reference (identity) token in response: auto | yes | no'
     required: false
     default: 'auto'
+  min-age:
+    description: >
+      Rotate only if the current token was issued at least this long ago
+      (Go duration, e.g. 168h). Empty disables. OR-combined with expires-within.
+    required: false
+    default: ''
+  expires-within:
+    description: >
+      Rotate only if the current token expires within this duration
+      (Go duration, e.g. 24h). Non-expiring tokens never satisfy this gate.
+      Empty disables. OR-combined with min-age.
+    required: false
+    default: ''
   version:
     description: >
       art-rotate release tag to download (e.g. v0.3.0). Defaults to the ref
@@ -58,6 +71,15 @@ outputs:
   is-identity-token:
     description: 'true when the new token is an identity (reference) token.'
     value: ${{ steps.rotate.outputs.is-identity-token }}
+  skipped:
+    description: >
+      'true' when a rotation gate (min-age / expires-within) was set but not
+      satisfied, so no new token was issued. Other outputs are empty in this
+      case. Guard downstream steps with `if: steps.rotate.outputs.skipped != 'true'`.
+    value: ${{ steps.rotate.outputs.skipped }}
+  skip-reason:
+    description: 'Human-readable reason when skipped is true.'
+    value: ${{ steps.rotate.outputs.skip-reason }}
 
 runs:
   using: composite
@@ -112,6 +134,8 @@ runs:
         METHOD: ${{ inputs.method }}
         REVOKE_OLD: ${{ inputs.revoke-old }}
         INCLUDE_REF: ${{ inputs.include-reference-token }}
+        MIN_AGE: ${{ inputs.min-age }}
+        EXPIRES_WITHIN: ${{ inputs.expires-within }}
       run: |
         set -euo pipefail
         if [[ -z "${ARTIFACTORY_TOKEN:-}" ]]; then
@@ -122,8 +146,31 @@ runs:
         if [[ "$REVOKE_OLD" == "true" ]]; then
           args+=(--revoke-old)
         fi
+        if [[ -n "$MIN_AGE" ]]; then
+          args+=(--min-age "$MIN_AGE")
+        fi
+        if [[ -n "$EXPIRES_WITHIN" ]]; then
+          args+=(--expires-within "$EXPIRES_WITHIN")
+        fi
         json_out="$RUNNER_TEMP/art-rotate.out.json"
         "$RUNNER_TEMP/art-rotate" "${args[@]}" > "$json_out"
+
+        skipped=$(jq -r '.skipped // false' "$json_out")
+        if [[ "$skipped" == "true" ]]; then
+          reason=$(jq -r '.skip_reason // ""' "$json_out")
+          old_id=$(jq -r '.old_token_id // ""' "$json_out")
+          echo "INFO: rotation skipped — $reason (old token_id=$old_id)" >&2
+          {
+            echo "skipped=true"
+            echo "skip-reason=$reason"
+            echo "new-token="
+            echo "new-token-id="
+            echo "expires-in=0"
+            echo "is-identity-token=false"
+          } >> "$GITHUB_OUTPUT"
+          rm -f "$json_out"
+          exit 0
+        fi
 
         new_access=$(jq -r '.access_token' "$json_out")
         new_ref=$(jq -r '.reference_token // empty' "$json_out")
@@ -140,6 +187,7 @@ runs:
         if [[ -n "$new_ref" ]]; then echo "::add-mask::$new_ref"; fi
 
         {
+          echo "skipped=false"
           echo "new-token<<__ART_ROTATE_EOF__"
           printf '%s\n' "$new_value"
           echo "__ART_ROTATE_EOF__"

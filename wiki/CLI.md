@@ -45,6 +45,25 @@ art-rotate --url URL --token TOKEN [flags]
 | `--expires-in` | mirrored | Override the new token's TTL in seconds (0 = non-expiring) |
 | `--description` | mirrored + suffix | Override the description |
 
+### Rotation gates
+
+| Flag | Default | Purpose |
+|---|---|---|
+| `--min-age` | `0` (disabled) | Rotate only when the existing token was issued at least this long ago. |
+| `--expires-within` | `0` (disabled) | Rotate only when the existing token expires within this duration. Non-expiring tokens never satisfy this gate. |
+
+If both are set, rotation proceeds when **either** is satisfied (OR semantics). Both accept Go duration syntax — `168h`, `24h`, `30m`. Days aren't supported; write `168h` for one week.
+
+When gates are configured and none are satisfied, the run is a no-op: exit code `0`, no new token issued, and the sinks receive a JSON marker instead of token fields:
+
+```json
+{
+  "skipped": true,
+  "skip_reason": "age 4h32m < min-age 168h0m0s",
+  "old_token_id": "..."
+}
+```
+
 ### Output
 
 | Flag | Default | Purpose |
@@ -112,6 +131,6 @@ Written to stdout (and to the `file` sink if configured):
 
 | Code | Meaning |
 |---|---|
-| `0` | New token issued and emitted to every sink |
+| `0` | New token issued and emitted to every sink — or a gate skipped the rotation (no-op success). Use the JSON `skipped` field to distinguish. |
 | `1` | Introspection or rotation failed; no new token issued |
 | `2` | New token was issued but a sink or revoke step failed; the value is still usable, follow-up may be needed |

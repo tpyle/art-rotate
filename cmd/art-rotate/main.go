@@ -74,6 +74,8 @@ Flags:
 		description  = fs.String("description", "", "Override description (default: old description + ' (rotated YYYY-MM-DD)')")
 		timeout      = fs.Duration("timeout", 30*time.Second, "HTTP timeout")
 		insecure     = fs.Bool("insecure-skip-verify", false, "Skip TLS verification (DANGEROUS; dev only)")
+		minAge       = fs.Duration("min-age", 0, "Rotate only if the current token was issued at least this long ago (e.g. 168h). Zero disables. OR-combined with --expires-within.")
+		expiresWithin = fs.Duration("expires-within", 0, "Rotate only if the current token expires within this duration (e.g. 24h). Zero disables. Non-expiring tokens never satisfy this gate. OR-combined with --min-age.")
 	)
 	var outputs stringSlice
 	fs.Var(&outputs, "output", "Output sink, repeatable or comma-separated: stdout | file (default: stdout)")
@@ -125,6 +127,8 @@ Flags:
 		RevokeOld:        *revokeOld,
 		Description:      *description,
 		IncludeReference: includeRef,
+		MinAge:           *minAge,
+		ExpiresWithin:    *expiresWithin,
 	}
 	if *expiresInArg >= 0 {
 		v := *expiresInArg
@@ -138,6 +142,24 @@ Flags:
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "ERROR: %v\n", err)
 		return 1
+	}
+
+	if res.Skipped {
+		fmt.Fprintf(os.Stderr, "INFO: skipped rotation (%s); old token_id=%s\n", res.SkipReason, res.OldTokenID)
+		skipPayload := sink.Payload{
+			Skipped:    true,
+			SkipReason: res.SkipReason,
+			OldTokenID: res.OldTokenID,
+		}
+		multi := sink.Multi{Sinks: sinks}
+		exit := 0
+		if sinkErrs := multi.Write(ctx, skipPayload); len(sinkErrs) > 0 {
+			for _, se := range sinkErrs {
+				fmt.Fprintf(os.Stderr, "ERROR: sink %s: %v\n", se.Sink, se.Err)
+			}
+			exit = 2
+		}
+		return exit
 	}
 
 	isIdentity := rotate.IsIdentityToken(res.OldTokenInfo)
