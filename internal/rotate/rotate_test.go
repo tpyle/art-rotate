@@ -24,12 +24,12 @@ func TestEvaluateGates(t *testing.T) {
 	}
 
 	cases := []struct {
-		name       string
-		issuedAt   int64
-		expiry     int64
-		minAge     time.Duration
-		expiresIn  time.Duration
-		wantSkip   bool
+		name      string
+		issuedAt  int64
+		expiry    int64
+		minAge    time.Duration
+		expiresIn time.Duration
+		wantSkip  bool
 	}{
 		{"no gates set always proceeds", issuedDaysAgo(1), expiresInDays(30), 0, 0, false},
 		{"min-age satisfied", issuedDaysAgo(10), 0, 7 * 24 * time.Hour, 0, false},
