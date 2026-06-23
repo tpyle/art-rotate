@@ -181,6 +181,24 @@ func TestBuildCreateRequest_NearExpiryUsesOriginalLifetime(t *testing.T) {
 	}
 }
 
+func TestDeriveDescription(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	cases := map[string]string{
+		"":                                "(rotated 2026-05-20)",
+		"ci runner":                       "ci runner (rotated 2026-05-20)",
+		"ci runner (rotated 2026-05-19)":  "ci runner (rotated 2026-05-20)",
+		"ci runner  (rotated 2026-05-19)": "ci runner (rotated 2026-05-20)",
+		"ci runner (rotated 2026-05-19) (rotated 2026-05-20)": "ci runner (rotated 2026-05-20)",
+		"(rotated 2026-05-19)":                                "(rotated 2026-05-20)",
+		"ci runner (rotated yesterday)":                       "ci runner (rotated yesterday) (rotated 2026-05-20)",
+	}
+	for old, want := range cases {
+		if got := deriveDescription(old, "", now); got != want {
+			t.Errorf("deriveDescription(%q) = %q, want %q", old, got, want)
+		}
+	}
+}
+
 func TestBuildCreateRequest_NonExpiringStaysNonExpiring(t *testing.T) {
 	info := &artifactory.TokenInfo{Subject: "user1", Expiry: 0}
 	req := BuildCreateRequest(info, Options{}, time.Now())
