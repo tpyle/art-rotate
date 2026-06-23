@@ -3,6 +3,7 @@ package rotate
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
 
@@ -269,13 +270,19 @@ func shouldIncludeReference(info *artifactory.TokenInfo, pref IncludeReference) 
 	}
 }
 
+// rotatedSuffixPattern matches one or more trailing "(rotated YYYY-MM-DD)"
+// stamps so repeated rotations replace the previous date instead of
+// cascading, and any existing pile-up from older buggy runs gets flattened.
+var rotatedSuffixPattern = regexp.MustCompile(`(?:\s*\(rotated \d{4}-\d{2}-\d{2}\))+\s*$`)
+
 func deriveDescription(old, override string, now time.Time) string {
 	if override != "" {
 		return override
 	}
 	suffix := fmt.Sprintf("(rotated %s)", now.UTC().Format("2006-01-02"))
-	if old == "" {
+	base := rotatedSuffixPattern.ReplaceAllString(old, "")
+	if base == "" {
 		return suffix
 	}
-	return old + " " + suffix
+	return base + " " + suffix
 }
