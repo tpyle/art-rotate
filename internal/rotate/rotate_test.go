@@ -17,10 +17,10 @@ import (
 func TestEvaluateGates(t *testing.T) {
 	now := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
 	issuedDaysAgo := func(days int) int64 {
-		return now.Add(-time.Duration(days) * 24 * time.Hour).UnixMilli()
+		return now.Add(-time.Duration(days) * 24 * time.Hour).Unix()
 	}
 	expiresInDays := func(days int) int64 {
-		return now.Add(time.Duration(days) * 24 * time.Hour).UnixMilli()
+		return now.Add(time.Duration(days) * 24 * time.Hour).Unix()
 	}
 
 	cases := []struct {
@@ -60,7 +60,7 @@ func TestEvaluateGates(t *testing.T) {
 
 func TestRotate_SkipsWhenGateNotSatisfied(t *testing.T) {
 	now := time.Date(2026, 1, 15, 12, 0, 0, 0, time.UTC)
-	issuedRecently := now.Add(-2 * time.Hour).UnixMilli()
+	issuedRecently := now.Add(-2 * time.Hour).Unix()
 
 	createCalled := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -125,13 +125,17 @@ func TestChooseMethod(t *testing.T) {
 
 func TestBuildCreateRequest_MirrorsTokenInfo(t *testing.T) {
 	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	// Token was issued an hour ago and expires in two more hours →
+	// original lifetime 3h. The new token should get 3h, not the 2h that
+	// remains.
 	info := &artifactory.TokenInfo{
 		TokenID:     "tok-1",
 		Subject:     "jfac@01h/users/svc-ci",
 		Scope:       "applied-permissions/groups:readers",
 		Audience:    "*@*",
 		Refreshable: true,
-		Expiry:      now.Add(2*time.Hour).Unix() * 1000,
+		IssuedAt:    now.Add(-1 * time.Hour).Unix(),
+		Expiry:      now.Add(2 * time.Hour).Unix(),
 		Description: "ci runner",
 		ProjectKey:  "myproj",
 	}
@@ -148,11 +152,32 @@ func TestBuildCreateRequest_MirrorsTokenInfo(t *testing.T) {
 	if req.ProjectKey != "myproj" {
 		t.Errorf("project_key not mirrored: %q", req.ProjectKey)
 	}
-	if req.ExpiresIn == nil || *req.ExpiresIn != 7200 {
-		t.Errorf("expires_in = %v, want 7200", req.ExpiresIn)
+	if req.ExpiresIn == nil || *req.ExpiresIn != int64(3*60*60) {
+		t.Errorf("expires_in = %v, want 10800 (original lifetime, not remaining)", req.ExpiresIn)
 	}
 	if !strings.HasPrefix(req.Description, "ci runner (rotated 2026-05-20") {
 		t.Errorf("description = %q", req.Description)
+	}
+}
+
+// TestBuildCreateRequest_NearExpiryUsesOriginalLifetime captures the
+// 1-second-token bug: rotating a token that's about to expire must produce a
+// new token with the original lifetime, not the (essentially zero) remaining
+// lifetime.
+func TestBuildCreateRequest_NearExpiryUsesOriginalLifetime(t *testing.T) {
+	now := time.Date(2026, 5, 20, 12, 0, 0, 0, time.UTC)
+	info := &artifactory.TokenInfo{
+		Subject:  "u/users/svc",
+		IssuedAt: now.Add(-365 * 24 * time.Hour).Unix(), // issued a year ago
+		Expiry:   now.Add(1 * time.Second).Unix(),       // expires in 1 second
+	}
+	req := BuildCreateRequest(info, Options{}, now)
+	if req.ExpiresIn == nil {
+		t.Fatal("expected ExpiresIn to be set")
+	}
+	wantLifetime := int64(365*24*60*60 + 1)
+	if *req.ExpiresIn != wantLifetime {
+		t.Errorf("expires_in = %d, want %d (original lifetime, not remaining time)", *req.ExpiresIn, wantLifetime)
 	}
 }
 
@@ -165,7 +190,7 @@ func TestBuildCreateRequest_NonExpiringStaysNonExpiring(t *testing.T) {
 }
 
 func TestBuildCreateRequest_OverrideExpiresIn(t *testing.T) {
-	info := &artifactory.TokenInfo{Subject: "user1", Expiry: 1700000000000}
+	info := &artifactory.TokenInfo{Subject: "user1", IssuedAt: 1700000000, Expiry: 1800000000}
 	override := int64(60)
 	req := BuildCreateRequest(info, Options{ExpiresIn: &override}, time.Now())
 	if req.ExpiresIn == nil || *req.ExpiresIn != 60 {

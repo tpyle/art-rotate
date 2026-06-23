@@ -70,7 +70,7 @@ Flags:
 		refTokenMode  = fs.String("include-reference-token", "auto", "Ask Artifactory to also issue a reference (identity) token: auto | yes | no. Auto = on when the source token is an identity token.")
 		revokeOld     = fs.Bool("revoke-old", false, "Revoke the old token after the new one is emitted")
 		outputFile    = fs.String("output-file", "", "Path for the 'file' sink (written 0600, atomic)")
-		expiresInArg  = fs.Int64("expires-in", -1, "Override new-token TTL in seconds (default: mirror remaining TTL of old token; 0 = non-expiring)")
+		expiresInArg  = fs.Int64("expires-in", -1, "Override new-token TTL in seconds (default: mirror old token's original lifetime, i.e. expiry-issued_at; 0 = non-expiring)")
 		description   = fs.String("description", "", "Override description (default: old description + ' (rotated YYYY-MM-DD)')")
 		timeout       = fs.Duration("timeout", 30*time.Second, "HTTP timeout")
 		insecure      = fs.Bool("insecure-skip-verify", false, "Skip TLS verification (DANGEROUS; dev only)")

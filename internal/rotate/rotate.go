@@ -158,12 +158,14 @@ func evaluateGates(info *artifactory.TokenInfo, opts Options, now time.Time) (sk
 		return false, ""
 	}
 
+	// info.IssuedAt and info.Expiry are unix epoch SECONDS (not ms) — the
+	// JFrog Access API returns them that way.
 	var age, remaining time.Duration
 	if info.IssuedAt > 0 {
-		age = now.Sub(time.UnixMilli(info.IssuedAt))
+		age = now.Sub(time.Unix(info.IssuedAt, 0))
 	}
 	if info.Expiry > 0 {
-		remaining = time.UnixMilli(info.Expiry).Sub(now)
+		remaining = time.Unix(info.Expiry, 0).Sub(now)
 	}
 
 	if opts.MinAge > 0 && age >= opts.MinAge {
@@ -228,11 +230,17 @@ func BuildCreateRequest(info *artifactory.TokenInfo, opts Options, now time.Time
 	case opts.ExpiresIn != nil:
 		v := *opts.ExpiresIn
 		req.ExpiresIn = &v
-	case info.Expiry > 0:
-		remaining := max(info.Expiry/1000-now.Unix(), int64(1))
-		req.ExpiresIn = &remaining
+	case info.Expiry > 0 && info.IssuedAt > 0 && info.Expiry > info.IssuedAt:
+		// Issue the new token with the OLD token's ORIGINAL lifetime
+		// (expiry − issued_at), not its remaining time. Otherwise rotating
+		// a near-expiry token — which --expires-within explicitly
+		// encourages — would mint a near-expired replacement. Both fields
+		// are unix epoch seconds.
+		lifetime := info.Expiry - info.IssuedAt
+		req.ExpiresIn = &lifetime
 	default:
-		// Old token is non-expiring; omit field so new token inherits same.
+		// Old token is non-expiring (or lifetime indeterminate); omit so
+		// the new token inherits the server's default for this subject.
 	}
 	return req
 }
